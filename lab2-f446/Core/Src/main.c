@@ -36,7 +36,7 @@
 /* USER CODE BEGIN PD */
 
 #define FFT_SAMPLES 512
-#define I2S_BUFFER_SIZE (FFT_SAMPLES * 4)
+#define I2S_BUFFER_SIZE (FFT_SAMPLES * 8)
 
 /* USER CODE END PD */
 
@@ -96,38 +96,48 @@ void DSP_Init(void)
 
 void ProcessAudioData(void)
 {
-    uint32_t startIndex = 0;
-
-    if (bufferOffset == 1)
-    {
-        startIndex = I2S_BUFFER_SIZE / 2;
-    }
+    uint32_t startIndex = (bufferOffset == 1) ? (I2S_BUFFER_SIZE / 2) : 0;
 
     for (uint32_t i = 0; i < FFT_SAMPLES; i++)
     {
-        /* index points to the start of the 4 Half-Word frame */
         uint32_t index = startIndex + (i * 4);
-
         int16_t msb = i2sRxBuffer[index];
         uint16_t lsb = (uint16_t)i2sRxBuffer[index + 1];
 
-        /* Combine MSB and LSB into a 32-bit signed integer */
         int32_t combined = ((int32_t)msb << 16) | lsb;
-
-        /* Shift by 8 to align the 24-bit data and keep the sign */
-        int32_t finalSample = combined >> 8;
-
-        /* Cast the clean integer to float */
-        fftInputBuffer[i] = (float32_t)finalSample;
+        fftInputBuffer[i] = (float32_t)(combined >> 8);
     }
 
-    /* Stop debugging here! */
+    float32_t sum = 0.0f;
+    for (uint32_t i = 0; i < FFT_SAMPLES; i++) sum += fftInputBuffer[i];
+    float32_t meanValue = sum / (float32_t)FFT_SAMPLES;
+    for (uint32_t i = 0; i < FFT_SAMPLES; i++) fftInputBuffer[i] -= meanValue;
+
+    arm_mult_f32(fftInputBuffer, windowBuffer, fftInputBuffer, FFT_SAMPLES);
+    arm_rfft_fast_f32(&fftHandler, fftInputBuffer, fftOutputBuffer, 0);
+    arm_cmplx_mag_f32(fftOutputBuffer, fftMagnitudeBuffer, FFT_SAMPLES / 2);
+
     dataReadyFlag = 0;
+}
+
+void SendSpectrum_UART(void)
+{
+    char uartBuf[16];
+    uint16_t len;
+    for (uint32_t i = 0; i < (FFT_SAMPLES / 2); i++)
+    {
+        uint32_t magnitude = (uint32_t)fftMagnitudeBuffer[i];
+        if (i == (FFT_SAMPLES / 2) - 1)
+            len = snprintf(uartBuf, sizeof(uartBuf), "%lu\r\n", magnitude);
+        else
+            len = snprintf(uartBuf, sizeof(uartBuf), "%lu,", magnitude);
+        HAL_UART_Transmit(&huart1, (uint8_t *)uartBuf, len, HAL_MAX_DELAY);
+    }
 }
 
 void HAL_I2S_RxHalfCpltCallback(I2S_HandleTypeDef *hi2s)
 {
-    if (hi2s->Instance == SPI1) /* Change SPI2 to your I2S instance if different */
+    if (hi2s->Instance == SPI1) 
     {
         bufferOffset = 0;
         dataReadyFlag = 1;
@@ -136,14 +146,12 @@ void HAL_I2S_RxHalfCpltCallback(I2S_HandleTypeDef *hi2s)
 
 void HAL_I2S_RxCpltCallback(I2S_HandleTypeDef *hi2s)
 {
-    if (hi2s->Instance == SPI1) /* Change SPI2 to your I2S instance if different */
+    if (hi2s->Instance == SPI1) 
     {
         bufferOffset = 1;
         dataReadyFlag = 1;
     }
 }
-
-
 
 /* USER CODE END 0 */
 
@@ -183,7 +191,7 @@ int main(void)
 
   
   DSP_Init();
-  HAL_I2S_Receive_DMA(&hi2s1, (uint16_t *)i2sRxBuffer, I2S_BUFFER_SIZE); /* Ensure hi2s2 matches your setup */
+  HAL_I2S_Receive_DMA(&hi2s1, (uint16_t *)i2sRxBuffer, I2S_BUFFER_SIZE / 2);
 
   /* USER CODE END 2 */
 
@@ -194,10 +202,7 @@ int main(void)
     if (dataReadyFlag == 1)
     {
         ProcessAudioData();
-        
-        /* Here we will add UART transmission later.
-            The fftMagnitudeBuffer now holds 256 frequency bins!
-        */
+        SendSpectrum_UART();
     }
     /* USER CODE END WHILE */
 

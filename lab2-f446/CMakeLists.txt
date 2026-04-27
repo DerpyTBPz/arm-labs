@@ -58,6 +58,10 @@ file(GLOB_RECURSE DSP_SOURCES
     "Drivers/CMSIS/DSP/Source/FastMathFunctions/*.c"
     "Drivers/CMSIS/DSP/Source/BasicMathFunctions/*.c"
     "Drivers/CMSIS/DSP/Source/ComplexMathFunctions/*.c"
+    "Drivers/CMSIS/DSP/Source/TransformFunctions/arm_rfft_fast_f32.c"
+    "Drivers/CMSIS/DSP/Source/TransformFunctions/arm_cfft_f32.c"
+    "Drivers/CMSIS/DSP/Source/CommonTables/arm_common_tables.c"
+    "Drivers/CMSIS/DSP/Source/BasicMathFunctions/arm_mean_f32.c"
 )
 
 # Filter out the umbrella files for these specific folders
